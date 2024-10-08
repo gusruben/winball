@@ -13,15 +13,25 @@ float sY(float y) {
     return SCREEN_H - (y * scale);
 }
 
+typedef struct {
+    float x;
+    float y;
+} Vector;
+
+
+typedef struct {
+    Vector position;
+    Vector velocity;
+    float radius;
+    int color;
+} Ball;
+
+
 int main(int argc, const char **argv)
 {
     BITMAP *buffer;
     int timer;
     float gravity = -20.0f;
-    float ballX;
-    float ballY;
-    float ballVelX = 8.0f;
-    float ballVelY = 12.0f;
 
     // delta time
     double old_time = 0;
@@ -53,8 +63,12 @@ int main(int argc, const char **argv)
     simWidth = SCREEN_W / scale;
     simHeight = SCREEN_H / scale;
 
-    ballX = simWidth / 2;
-    ballY = simHeight / 2;
+    Ball ball = {
+        .position = {simWidth / 2, simHeight / 2},
+        .velocity = {8, 12},
+        .radius = 7,
+        .color = makecol(0, 0, 0)
+    };
 
     buffer = create_bitmap(SCREEN_W, SCREEN_H);
     
@@ -65,23 +79,23 @@ int main(int argc, const char **argv)
         old_time = new_time;
 
         clear_bitmap(buffer);
-        circlefill(screen, sX(ballX), sY(ballY), 7, makecol(0,0,0));
+        circlefill(screen, sX(ball.position.x), sY(ball.position.y), ball.radius, ball.color);
 
-        ballVelY += gravity * dt;
-        ballX += ballVelX * dt;
-        ballY += ballVelY * dt;
+        ball.velocity.y += gravity * dt;
+        ball.position.x += ball.velocity.x * dt;
+        ball.position.y += ball.velocity.y * dt;
 
-        if (ballX < 0) {
-            ballX = 0;
-            ballVelX *= -1;
+        if (ball.position.x < 0) {
+            ball.position.x = 0;
+            ball.velocity.x *= -1;
         }
-        if (ballX > simWidth) {
-            ballX = simWidth;
-            ballVelX *= -1;
+        if (ball.position.x > simWidth) {
+            ball.position.x = simWidth;
+            ball.velocity.x *= -1;
         }
-        if (ballY < 0) {
-            ballY = 0;
-            ballVelY *= -1;
+        if (ball.position.y < 0) {
+            ball.position.y = 0;
+            ball.velocity.y *= -1;
         }
 
         vsync();
