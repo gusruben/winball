@@ -80,10 +80,12 @@ bool paused = false;
 float gravity = -3.0f;
 float flipperHeight = 1.7f;
 float deathZone = -0.5;
+float streakEndZone = 0.3;
 
 // score
 int score = 0;
 int lives = 3;
+int streak = 0;
 
 Ball ball;
 Bouncer bouncers[BOUNCER_AMOUNT];
@@ -228,6 +230,10 @@ void updateBall(Ball* b, float dt) {
         b->velocity = (Vector){0, 0}; 
         lives--;
     }
+
+    if (b->position.y < streakEndZone) {
+        streak = 0;
+    }
 }
 void updateFlipper(Flipper* flipper, float dt, bool pressed) {
     float prevRotation = flipper->rotation;
@@ -248,8 +254,8 @@ void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
     if (distance > ball->radius + bouncer->radius || distance == 0) { return; }
     
     // add to score
-    score += bouncer->score;
-
+    score += bouncer->score * (1 + streak/10);
+    streak++;
     // trigger bouncer hit effects
     bouncer->hitTimer = 5;
 
@@ -267,27 +273,30 @@ void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
 void handleFlipperCollision(Ball* ball, Flipper* flipper) {
     Vector tip = getFlipperTip(flipper);
     Vector closest = closestPointOnLineSegment(ball->position, (LineSegment){flipper->position, tip});
-    Vector dir = subtractVectors(ball->position, closest);
-    float d = vectorLength(dir);
+    Vector directionVector = subtractVectors(ball->position, closest);
+    float d = vectorLength(directionVector);
     
     if (d == 0.0 || d > ball->radius + flipper->radius)
         return;
 
-    dir = scaleVector(dir, 1.0 / d);
+    // reset streak
+    streak = 0;
+
+    directionVector = scaleVector(directionVector, 1.0 / d);
 
     float corr = (ball->radius + flipper->radius - d);
-    ball->position = addVectors(ball->position, scaleVector(dir, corr));
+    ball->position = addVectors(ball->position, scaleVector(directionVector, corr));
 
     // update velocity
-    Vector radius = addVectors(closest, scaleVector(dir, flipper->radius));
+    Vector radius = addVectors(closest, scaleVector(directionVector, flipper->radius));
     radius = subtractVectors(radius, flipper->position);
     Vector surfaceVel = perpendicularVector(radius);
     surfaceVel = scaleVector(surfaceVel, flipper->currentAngularVelocity);
 
-    float v = dotProduct(ball->velocity, dir);
-    float vnew = dotProduct(surfaceVel, dir);
+    float v = dotProduct(ball->velocity, directionVector);
+    float vnew = dotProduct(surfaceVel, directionVector);
 
-    ball->velocity = addVectors(ball->velocity, scaleVector(dir, vnew - v));
+    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, vnew - v));
 }
 
 void handleBorderCollision(Ball* ball, Vector border[], int borderCount) {
@@ -502,8 +511,6 @@ int main(int argc, const char **argv)
         circlefill(buffer, sX(ball.position.x + 0.005), sY(ball.position.y + 0.005), sX(ball.radius - 0.018), makecol(50, 50, 50));
         circlefill(buffer, sX(ball.position.x + 0.009), sY(ball.position.y + 0.009), sX(ball.radius - 0.035), makecol(100, 100, 100));
 
-
-
         // draw borders
         for (int i = 0; i < 7; i++) {
             line(buffer, 
@@ -577,6 +584,31 @@ int main(int argc, const char **argv)
         char scoreText[20];
         sprintf(scoreText, "Score: %d", score);
         textout_ex(buffer, font, scoreText, SCREEN_W - 100, 10, makecol(255, 255, 255), -1);
+
+        // draw streak
+        int streakColor;
+        int streakBg = -1;
+        if (streak == 0) {
+            streakColor = makecol(200, 200, 200);
+        } else if (streak == 1) {
+            streakColor  = makecol(200, 200, 200);
+        } else {
+            float hue = streak * 10;
+            int r, g, b;
+            hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
+            streakColor = makecol(r, g, b);
+        }
+        if (streak > 15) {
+            streakBg = makecol(255, 255, 255);
+        }
+
+        char streakText[20];
+        sprintf(streakText, "Streak: %d", streak);
+        textout_ex(buffer, font, streakText, SCREEN_W - 100, 23, streakColor, streakBg);
+        // multiplier text
+        char multiplierText[20];
+        sprintf(multiplierText, "%.2fx", 1.0 + (streak / 10.0));
+        textout_ex(buffer, font, multiplierText, SCREEN_W - 100, 33, streakColor, streakBg);
 
         // draw lives
         for (int i = 0; i < lives; i++) {
