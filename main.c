@@ -1,10 +1,24 @@
 #include <allegro.h>
 #include <stdbool.h>
 #include <math.h>
+#include <stdio.h>
 
 // macros
 #define BORDER_POINTS 8
 #define BOUNCER_AMOUNT 4
+#define HOLE_Y 0.1
+
+void checkBallFall(Ball* ball) {
+    if (ball->position.y <= HOLE_Y) {
+        score = 0;
+        ball->position.x = simWidth / 2;
+        ball->position.y = simHeight / 2;
+        ball->velocity.x = 0;
+        ball->velocity.y = 0;
+    }
+}
+
+
 
 
 // scaling
@@ -44,24 +58,27 @@ typedef struct {
     float pushStrength;
 } Bouncer;
 typedef struct {
-    Vector position;
     float radius;
+    Vector position;
     float length;
     float restAngle;
-    float activeAngle;
-    bool sign;
+    float maxRotation;
+    float sign;
     float angularVelocity;
-    // non-constants
-    float currentAngle;
+    // changing
+    float rotation;
     float currentAngularVelocity;
-    float touchIdentifier;
+    int touchIdentifier;
 } Flipper;
 
 
 // physics scene
 bool paused = false;
-float gravity = -20.0f;
+float gravity = -3.0f;
 float flipperHeight = 1.7f;
+
+// score
+int score = 0;
 
 Ball ball;
 Bouncer bouncers[BOUNCER_AMOUNT];
@@ -107,11 +124,6 @@ LineSegment getLineSegment(Vector position, float length, float angle) {
     Vector endpoint = addVectors(position, scaleVector(directionVector, length));
     return (LineSegment){.a = position, .b = endpoint};
 }
-LineSegment lineSegmentFromFlipper(Flipper f) {
-    float realAngle = f.restAngle + (f.sign * f.currentAngle);
-    return getLineSegment(f.position, f.length, realAngle);
-}
-
 // builtin allegro function is for 3d
 float dotProduct(Vector a, Vector b) {
     return (a.x * b.x) + (a.y * b.y);
@@ -130,26 +142,39 @@ Vector closestPointOnLineSegment(Vector point, LineSegment line) {
     return addVectors(line.a, scaleVector(segmentVector, distAlongLine));
 }
 
+Vector getFlipperTip(Flipper* flipper) {
+    float angle = flipper->restAngle + flipper->sign * flipper->rotation;
+    Vector dir = {cos(angle), sin(angle)};
+    return addVectors(flipper->position, scaleVector(dir, flipper->length));
+}
+
+
 // feature-specific functions
 void updateBall(Ball* b, float dt) {
     b->velocity.y += gravity * dt;
-    b->position = addVectors(b->position, scaleVector(b->velocity, dt));
+    b->position.x += b->velocity.x * dt;
+    b->position.y += b->velocity.y * dt;
 }
 void updateFlipper(Flipper* flipper, float dt, bool pressed) {
-    float oldAngle = flipper->currentAngle;
+    float prevRotation = flipper->rotation;
     if (pressed) {
-        flipper->currentAngle = MIN(flipper->currentAngle + (flipper->currentAngularVelocity * dt), flipper->activeAngle);
+        flipper->rotation = MIN(flipper->rotation + dt * flipper->angularVelocity, flipper->maxRotation);
     } else {
-        flipper->currentAngle = MAX(flipper->currentAngle - (flipper->currentAngularVelocity * dt), flipper->restAngle);
+        flipper->rotation = MAX(flipper->rotation - dt * flipper->angularVelocity, 0.0);
     }
-    flipper->currentAngularVelocity = flipper->sign * (flipper->currentAngle - oldAngle) / dt;
+    flipper->currentAngularVelocity = flipper->sign * (flipper->rotation - prevRotation) / dt;
 }
+
+
 // collision handlers
 void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
     Vector directionVector = subtractVectors(ball->position, bouncer->position); // vector pointing from the ball center to the bouncer center
     float distance = vectorLength(directionVector);
     // if the distance is greater than the sum of the radii, they aren't touching
     if (distance > ball->radius + bouncer->radius || distance == 0) { return; }
+    
+    // add to score (smaller bouncers worth more)
+    score += (int)(100 / (bouncer->radius * 100));
 
     directionVector = normalizeVector(directionVector);
 
@@ -163,79 +188,96 @@ void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
     ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, bouncer->pushStrength - velocityTowardsBouncer));
 }
 void handleFlipperCollision(Ball* ball, Flipper* flipper) {
-    Vector closestPoint = closestPointOnLineSegment(ball->position, lineSegmentFromFlipper(*flipper));
-    // after finding the closest point, the rest is basically just the same as bouncer physics
-    Vector directionVector = subtractVectors(ball->position, closestPoint);
-    float distance = vectorLength(directionVector);
-    if (distance > ball->radius + flipper->radius || distance == 0) { return; }
-
-    directionVector = normalizeVector(directionVector);
-
-    float inset = ball->radius + flipper->radius - distance;
-    ball->position = addVectors(ball->position, scaleVector(directionVector, inset));
-
-    // finding the velocity of the flipper at the contact point
-    Vector radiusVector = addVectors(closestPoint, scaleVector(directionVector, flipper->radius));
-    radiusVector = subtractVectors(radiusVector, flipper->position);
-    // to get the velocity, just rotate it by 90 degrees and scale it with the angular velocity of the flipper
-    Vector surfaceVelocityVector = scaleVector(perpendicularVector(radiusVector), flipper->currentAngularVelocity);
+    Vector tip = getFlipperTip(flipper);
+    Vector closest = closestPointOnLineSegment(ball->position, (LineSegment){flipper->position, tip});
+    Vector dir = subtractVectors(ball->position, closest);
+    float d = vectorLength(dir);
     
-    // same code as the bouncers for updating the ball's velocity
-    float oldVelocityTowardsFlipper = dotProduct(ball->velocity, directionVector);
-    float newVelocityTowardsFlipper = dotProduct(surfaceVelocityVector, directionVector);
-    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, newVelocityTowardsFlipper - oldVelocityTowardsFlipper));
+    if (d == 0.0 || d > ball->radius + flipper->radius)
+        return;
+
+    dir = scaleVector(dir, 1.0 / d);
+
+    float corr = (ball->radius + flipper->radius - d);
+    ball->position = addVectors(ball->position, scaleVector(dir, corr));
+
+    // update velocity
+    Vector radius = addVectors(closest, scaleVector(dir, flipper->radius));
+    radius = subtractVectors(radius, flipper->position);
+    Vector surfaceVel = perpendicularVector(radius);
+    surfaceVel = scaleVector(surfaceVel, flipper->currentAngularVelocity);
+
+    float v = dotProduct(ball->velocity, dir);
+    float vnew = dotProduct(surfaceVel, dir);
+
+    ball->velocity = addVectors(ball->velocity, scaleVector(dir, vnew - v));
 }
-void handleBorderCollision(Ball* ball, Vector border[]) {
-    // first, find the closest border point to c
-    Vector directionVector;
-    Vector closest;
-    float shortestDistance = 0; // will always be set on the first iteration
-    Vector inwardNormal;
 
-    for (int i = 0; i < BORDER_POINTS; i++) {
-        Vector p1 = border[i];
-        Vector p2 = border[(i + 1) % (BORDER_POINTS - 1)];
-        Vector closestPoint = closestPointOnLineSegment(ball->position, (LineSegment){p1, p2});
-        directionVector = subtractVectors(ball->position, closestPoint);
-        float distance = vectorLength(directionVector);
-        if (i == 0 || distance < shortestDistance) {
-            shortestDistance = distance;
-            closest = closestPoint;
+void handleBorderCollision(Ball* ball, Vector border[], int borderCount) {
+    if (borderCount < 3)
+        return;
 
-            // inward-facing normal
-            inwardNormal = perpendicularVector(subtractVectors(p2, p1));
+    Vector d, closest, ab, normal;
+    float minDist = 0.0f;
+    int closestIndex = 0;
+
+    for (int i = 0; i < borderCount; i++) {
+        Vector a = border[i];
+        Vector b = border[(i + 1) % borderCount];
+        Vector c = closestPointOnLineSegment(ball->position, (LineSegment){a, b});
+        d = subtractVectors(ball->position, c);
+        float dist = vectorLength(d);
+        if (i == 0 || dist < minDist) {
+            minDist = dist;
+            closest = c;
+            ab = subtractVectors(b, a);
+            normal = normalizeVector(perpendicularVector(ab));
+            closestIndex = i;
         }
     }
 
-    // if the ball is inside the border, move it out
-    float distance = shortestDistance;
-    if (distance == 0) { // edge case where the ball is exactly on the border
-        directionVector = inwardNormal;
-        distance = vectorLength(inwardNormal);
-    };
-    directionVector = scaleVector(directionVector, 1 / distance);
-
-    if (dotProduct(directionVector, inwardNormal) >= 0) {
-        if (distance > ball->radius) return;
-        ball->position = addVectors(ball->position, scaleVector(directionVector, ball->radius - distance));
-    } else {
-        ball->position = addVectors(ball->position, scaleVector(directionVector, -(distance + ball->radius)));
+    d = subtractVectors(ball->position, closest);
+    float dist = vectorLength(d);
+    if (dist < 0.0001f) {
+        d = normal;
+        dist = vectorLength(normal);
     }
+    d = normalizeVector(d);
+
+    if (dotProduct(d, normal) >= 0.0f) {
+        if (dist > ball->radius) 
+            return;
+        
+        ball->position = addVectors(ball->position, scaleVector(normal, ball->radius - dist));
+       
+        float angle = acos(dotProduct(normalizeVector(ball->velocity), normal));
+        
+        if (fabs(angle - M_PI/2) < M_PI/6) {  
+            float bounceStrength = 0.5f;
+            Vector bounceVector = scaleVector(normal, bounceStrength);
+            ball->velocity = addVectors(ball->velocity, bounceVector);
+        }
+    }
+    else {
+        ball->position = addVectors(ball->position, scaleVector(d, -(dist + ball->radius)));
+    }
+
+    float v = dotProduct(ball->velocity, normal);
+    Vector reflectedVelocity = subtractVectors(ball->velocity, scaleVector(normal, 2 * v));
     
-    // update velocity
-    float oldVelocityTowardsBorder = dotProduct(ball->velocity, directionVector);
-    float newVelocityTowardsBorder = ABS(oldVelocityTowardsBorder) * ball->restitution;
-    
-    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, newVelocityTowardsBorder - oldVelocityTowardsBorder));
+    float energyLoss = 0.8f; 
+    ball->velocity = scaleVector(reflectedVelocity, energyLoss);
 }
 
-void rotate_translate(float x, float y, float cx, float cy, float angle, float *rx, float *ry) {
-    float cos_angle = cos(angle);
-    float sin_angle = sin(angle);
-    float tx = x * cos_angle - y * sin_angle;
-    float ty = x * sin_angle + y * cos_angle;
-    *rx = sX(cx + tx);
-    *ry = sY(cy + ty);
+
+void draw_filled_polygon(BITMAP *bmp, int points[], int num_points, int color) {
+    for (int i = 1; i < num_points - 1; i++) {
+        triangle(bmp, 
+                 points[0], points[1], 
+                 points[i*2], points[i*2+1], 
+                 points[(i+1)*2], points[(i+1)*2+1], 
+                 color);
+    }
 }
 
 int main(int argc, const char **argv)
@@ -264,8 +306,7 @@ int main(int argc, const char **argv)
     }
 
     set_palette(desktop_palette);
-    clear_to_color(screen, makecol(255, 255, 255));
-
+    
     // set up scaling
     scale = MIN(SCREEN_W, SCREEN_H) / flipperHeight;
     simWidth = SCREEN_W / scale;
@@ -273,10 +314,10 @@ int main(int argc, const char **argv)
 
     // initialize physics scene
     ball = (Ball){
-        .position = {simWidth / 2, simHeight / 2},
-        .velocity = {5, 5},
-        .radius = 4,
-        .color = makecol(0, 0, 0),
+        .position = {0.8, 0.7},
+        .velocity = {0, 0},
+        .radius = 0.05,
+        .color = makecol(0, 255, 0),
         .restitution = 0
     };
     Vector border[BORDER_POINTS] = {
@@ -286,54 +327,69 @@ int main(int argc, const char **argv)
         {margin, flipperHeight - margin},
         {margin, 0.4},
         {.26, .25},
-        {.26, margin},
-        {.74, margin}
+        {.26, -1},
+        {.74, -1}
     };
     Flipper flippers[2] = {
         {
-            .position = {0.26, 0.22},
             .radius = 0.03,
-            .length = 0.2,
-            .restAngle = -2.094395, // 120 degrees
-            .activeAngle = -0.5235988, // 30 degrees
+            .position = {0.26, 0.22},
+            .length = 0.15,
+            .restAngle = -0.5,
+            .maxRotation = 1.0,
             .sign = 1,
-            .angularVelocity = 10,
-            .touchIdentifier = 1,
-            .currentAngularVelocity = 0,
-            .currentAngle = 0,
+            .angularVelocity = 15.0,
+            .rotation = 0.0,
+            .currentAngularVelocity = 0.0,
+            .touchIdentifier = -1
         },
         {
-            .position = {0.74, 0.22},
             .radius = 0.03,
-            .length = 0.2,
-            .restAngle = 2.094395, // -120 degrees
-            .activeAngle = 0.5235988, // -30 degrees
-            .sign = 1,
-            .angularVelocity = 10,
-            .touchIdentifier = 1,
-            .currentAngularVelocity = 0,
-            .currentAngle = 0,
-        },
+            .position = {0.74, 0.22},
+            .length = 0.15,
+            .restAngle = M_PI + 0.5,
+            .maxRotation = 1.0,
+            .sign = -1,
+            .angularVelocity = 15.0,
+            .rotation = 0.0,
+            .currentAngularVelocity = 0.0,
+            .touchIdentifier = -1
+        }
     };
-    Bouncer bouncers[BOUNCER_AMOUNT]  = {
-        { .position = {0.25, 0.6}, .radius = 0.1, .pushStrength = 2 },
-        { .position = {0.75, 0.5}, .radius = 0.12, .pushStrength = 2 },
-        { .position = {0.7, 1.0}, .radius = 0.1, .pushStrength = 2 },
-        { .position = {0.2, 1.2}, .radius = 0.1, .pushStrength = 2 }
+
+
+    Bouncer bouncers[BOUNCER_AMOUNT] = {
+        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2 },  // Upper left
+        { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0 },  // Upper right
+        { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1 },  // Lower left
+        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3 }   // Lower right
     };
     
     buffer = create_bitmap(SCREEN_W, SCREEN_H);
+
+    // for filling in over the dark background
+    int white_area[BORDER_POINTS * 2];
+    for (int i = 0; i < BORDER_POINTS; i++) {
+        white_area[i*2] = sX(border[i].x);
+        white_area[i*2+1] = sY(border[i].y);
+    }
     
     while (1) {
 
         new_time = (double)retrace_count / CLOCKS_PER_SEC;
         dt = new_time - old_time;
+        dt = MIN(dt, 1.0/60.0);
         old_time = new_time;
 
-        clear_bitmap(buffer);
+        // clear_bitmap(buffer);
+        clear_to_color(buffer, makecol(0, 0, 0));
+
+        draw_filled_polygon(buffer, white_area, BORDER_POINTS, makecol(255, 255, 255));
 
         // draw ball
-        circlefill(buffer, sX(ball.position.x), sY(ball.position.y), ball.radius, ball.color);
+        circlefill(buffer, sX(ball.position.x), sY(ball.position.y), sX(ball.radius), ball.color);
+        // circlefill(buffer, SCREEN_W/2, SCREEN_H/2, 5, makecol(255,0,0));
+        // printf("%f", sX(ball.position.x));
 
         // draw borders
         for (int i = 0; i < 7; i++) {
@@ -349,39 +405,48 @@ int main(int argc, const char **argv)
             makecol(0, 0, 0));
 
         // draw flippers
-        MATRIX_f transform;
-        MATRIX_f temp;
-        
-        for (int i = 0; i < 2; i++) {  // Assuming you have 2 flippers
+        for (int i = 0; i < 2; i++) {
             Flipper flipper = flippers[i];
+            float angle = flipper.restAngle + flipper.sign * flipper.rotation;
 
-            float angle = -(flipper.restAngle + flipper.sign * flipper.currentAngle);
+            float cos_angle = cos(angle);
+            float sin_angle = sin(angle);
+            
+            float x1 = flipper.position.x + (-flipper.radius * cos_angle);
+            float y1 = flipper.position.y + (-flipper.radius * sin_angle);
+            float x2 = flipper.position.x + (flipper.length * cos_angle - flipper.radius * sin_angle);
+            float y2 = flipper.position.y + (flipper.length * sin_angle + flipper.radius * cos_angle);
+            float x3 = flipper.position.x + (flipper.length * cos_angle + flipper.radius * sin_angle);
+            float y3 = flipper.position.y + (flipper.length * sin_angle - flipper.radius * cos_angle);
+            float x4 = flipper.position.x + (flipper.radius * cos_angle);
+            float y4 = flipper.position.y + (flipper.radius * sin_angle);
 
-            // Draw the flipper body
-            float x1, y1, x2, y2, x3, y3, x4, y4;
-            rotate_translate(-flipper.radius, 0, flipper.position.x, flipper.position.y, angle, &x1, &y1);
-            rotate_translate(-flipper.radius, flipper.length, flipper.position.x, flipper.position.y, angle, &x2, &y2);
-            rotate_translate(flipper.radius, flipper.length, flipper.position.x, flipper.position.y, angle, &x3, &y3);
-            rotate_translate(flipper.radius, 0, flipper.position.x, flipper.position.y, angle, &x4, &y4);
-
-            int points[8] = {x1, y1, x2, y2, x3, y3, x4, y4};
+            int points[8] = {
+                sX(x1), sY(y1),
+                sX(x2), sY(y2),
+                sX(x3), sY(y3),
+                sX(x4), sY(y4)
+            };
             polygon(buffer, 4, points, makecol(255, 0, 0));
 
-            // Draw the pivot circle
-            float cx, cy;
-            rotate_translate(0, 0, flipper.position.x, flipper.position.y, angle, &cx, &cy);
-            circlefill(buffer, cx, cy, sX(flipper.radius), makecol(255, 0, 0));
+            circlefill(buffer, sX(flipper.position.x), sY(flipper.position.y), sX(flipper.radius), makecol(255, 0, 0));
 
-            // Draw the end circle
-            rotate_translate(0, flipper.length, flipper.position.x, flipper.position.y, angle, &cx, &cy);
-            circlefill(buffer, cx, cy, sX(flipper.radius), makecol(255, 0, 0));
+            float end_x = flipper.position.x + flipper.length * cos_angle;
+            float end_y = flipper.position.y + flipper.length * sin_angle;
+            circlefill(buffer, sX(end_x), sY(end_y), sX(flipper.radius), makecol(255, 0, 0));
         }
+
         
         // draw bouncers
         for (int i = 0; i < BOUNCER_AMOUNT; i++) {
             Bouncer bouncer = bouncers[i];
             circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,255));
         }
+
+        // draw score
+        char scoreText[20];
+        sprintf(scoreText, "Score: %d", score);
+        textout_ex(buffer, font, scoreText, SCREEN_W - 100, 10, makecol(255, 255, 255), -1);
 
         // physics simulations
         // flippers
@@ -396,7 +461,9 @@ int main(int argc, const char **argv)
         for (int i = 0; i < 2; i++) {
             handleFlipperCollision(&ball, &flippers[i]);
         }
-        handleBorderCollision(&ball, border);
+        handleBorderCollision(&ball, border, BORDER_POINTS);
+
+        checkBallFall(&ball);
 
         vsync();
         blit(buffer, screen, 0, 0, 0, 0, SCREEN_W, SCREEN_H);
