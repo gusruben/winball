@@ -7,7 +7,7 @@
 #define BORDER_POINTS 8
 #define BOUNCER_AMOUNT 5
 #define TRAIL_LENGTH 10
-#define TRAIL_CHECK_MS 50
+#define TRAIL_CHECK_MS 0
 
 // scaling
 float scale;
@@ -61,11 +61,6 @@ typedef struct {
 } Flipper;
 
 typedef struct {
-    Vector position;
-    int color;
-} TrailPoint;
-
-typedef struct {
     double r;       // a fraction between 0 and 1
     double g;       // a fraction between 0 and 1
     double b;       // a fraction between 0 and 1
@@ -94,7 +89,7 @@ Flipper flippers[2];
 float margin = 0.02;
 Vector border[BORDER_POINTS];
 
-TrailPoint trail[TRAIL_LENGTH];
+Vector trail[TRAIL_LENGTH];
 int trailIndex = 0;
 unsigned long lastTrailUpdate = 0;
 int latestColor;
@@ -347,7 +342,7 @@ void handleBorderCollision(Ball* ball, Vector border[], int borderCount) {
 }
 
 
-void draw_filled_polygon(BITMAP *bmp, int points[], int num_points, int color) {
+void drawFilledPolygon(BITMAP *bmp, int points[], int num_points, int color) {
     for (int i = 1; i < num_points - 1; i++) {
         triangle(bmp, 
                  points[0], points[1], 
@@ -360,13 +355,7 @@ void draw_filled_polygon(BITMAP *bmp, int points[], int num_points, int color) {
 void updateTrail(Ball* ball) {
     unsigned long currentTime = clock() * 1000 / CLOCKS_PER_SEC;
     if (currentTime - lastTrailUpdate >= TRAIL_CHECK_MS) {
-        trail[trailIndex].position = ball->position;
-        
-        float hue = (float)trailIndex / TRAIL_LENGTH * 360.0f;
-        int r, g, b;
-        hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
-        latestColor = makecol(r, g, b);
-        trail[trailIndex].color = latestColor;
+        trail[trailIndex] = ball->position;
 
         trailIndex = (trailIndex + 1) % TRAIL_LENGTH;
         lastTrailUpdate = currentTime;
@@ -374,10 +363,17 @@ void updateTrail(Ball* ball) {
 }
 
 void drawTrail(BITMAP* buffer) {
-    for (int i = 0; i < TRAIL_LENGTH; i++) {
+    for (int i = TRAIL_LENGTH - 1; i >= 0; i--) {
         int index = (trailIndex - i - 1 + TRAIL_LENGTH) % TRAIL_LENGTH;
-        float radius = ball.radius * (TRAIL_LENGTH - i) / TRAIL_LENGTH;
-        circlefill(buffer, sX(trail[index].position.x), sY(trail[index].position.y), sX(radius), trail[index].color);
+        // float radius = ball.radius * (TRAIL_LENGTH - i) / TRAIL_LENGTH;
+        float radius = ball.radius;
+        
+        float hue = (float)i / TRAIL_LENGTH * 360.0f;
+        int r, g, b;
+        hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
+        int color = makecol(r, g, b);
+
+        circlefill(buffer, sX(trail[index].x), sY(trail[index].y), sX(radius), color);
     }
 }
 
@@ -461,8 +457,7 @@ int main(int argc, const char **argv)
 
     // initialize trail
     for (int i = 0; i < TRAIL_LENGTH; i++) {
-        trail[i].position = ball.position;
-        trail[i].color = makecol(255, 255, 255);
+        trail[i] = ball.position;
     }
 
     Bouncer bouncers[BOUNCER_AMOUNT] = {
@@ -492,7 +487,7 @@ int main(int argc, const char **argv)
         // clear_bitmap(buffer);
         clear_to_color(buffer, makecol(0, 0, 0));
 
-        draw_filled_polygon(buffer, white_area, BORDER_POINTS, makecol(255, 255, 255));
+        drawFilledPolygon(buffer, white_area, BORDER_POINTS, makecol(255, 255, 255));
 
         // draw trail before ball
         drawTrail(buffer);
