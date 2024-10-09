@@ -5,7 +5,7 @@
 
 // macros
 #define BORDER_POINTS 8
-#define BOUNCER_AMOUNT 4
+#define BOUNCER_AMOUNT 5
 #define TRAIL_LENGTH 10
 #define TRAIL_CHECK_MS 50
 
@@ -82,9 +82,11 @@ typedef struct {
 bool paused = false;
 float gravity = -3.0f;
 float flipperHeight = 1.7f;
+float deathZone = -0.5;
 
 // score
 int score = 0;
+int lives = 3;
 
 Ball ball;
 Bouncer bouncers[BOUNCER_AMOUNT];
@@ -217,12 +219,18 @@ rgb hsv2rgb(hsv in)
     return out;     
 }
 
-
 // feature-specific functions
 void updateBall(Ball* b, float dt) {
     b->velocity.y += gravity * dt;
     b->position.x += b->velocity.x * dt;
     b->position.y += b->velocity.y * dt;
+
+    if (b->position.y < deathZone) {
+        printf("test!!!!");
+        b->position = (Vector){0.8, 0.7};
+        b->velocity = (Vector){0, 0}; 
+        lives--;
+    }
 }
 void updateFlipper(Flipper* flipper, float dt, bool pressed) {
     float prevRotation = flipper->rotation;
@@ -458,10 +466,11 @@ int main(int argc, const char **argv)
     }
 
     Bouncer bouncers[BOUNCER_AMOUNT] = {
-        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2, .color = makecol(240, 80, 130)},  // upper left
+        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2, .color = makecol(247, 82, 82)},  // upper left
         { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0, .color = makecol(82, 247, 159) },  // upper right
         { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1, .color = makecol(82, 226, 247) },  // lower left
-        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3, .color = makecol(247, 235, 82) }   // lower right
+        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3, .color = makecol(247, 235, 82) },   // lower right
+        {.position = 0.5, 1.4, .radius = 0.15, .pushStrength = 2.0, .color = makecol(255, 255, 255)} // top center
     };
     
     buffer = create_bitmap(SCREEN_W, SCREEN_H);
@@ -540,6 +549,12 @@ int main(int argc, const char **argv)
         // draw bouncers
         for (int i = 0; i < BOUNCER_AMOUNT; i++) {
             Bouncer bouncer = bouncers[i];
+            if (i == 4 && (int)new_time*1000 % 2 == 0) {
+                float hue = (int)(new_time * 360) % 360;
+                int r, g, b;
+                hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
+                bouncer.color = makecol(r, g, b);
+            }
             circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,0));
             circle(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius) - 2, bouncer.color);
         }
@@ -549,12 +564,24 @@ int main(int argc, const char **argv)
         sprintf(scoreText, "Score: %d", score);
         textout_ex(buffer, font, scoreText, SCREEN_W - 100, 10, makecol(255, 255, 255), -1);
 
+        // draw lives
+        for (int i = 0; i < lives; i++) {
+            circlefill(buffer, 130, 10 + (15 * i), 5, makecol(255,255,255));
+        }
+
         // physics simulations
         // flippers
         updateFlipper(&flippers[0], dt, key[KEY_LEFT]);
         updateFlipper(&flippers[1], dt, key[KEY_RIGHT]);
         // ball
         updateBall(&ball, dt);
+        // end game if lives are 0
+        if (lives == 0) {
+            allegro_exit();
+            printf("Thanks for playing! You got: %d", score);
+            return 0;
+        }
+
         // ball interactions
         for (int i = 0; i < BOUNCER_AMOUNT; i++) {
             handleBouncerCollision(&ball,  &bouncers[i]);
