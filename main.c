@@ -6,20 +6,8 @@
 // macros
 #define BORDER_POINTS 8
 #define BOUNCER_AMOUNT 4
-#define HOLE_Y 0.1
-
-void checkBallFall(Ball* ball) {
-    if (ball->position.y <= HOLE_Y) {
-        score = 0;
-        ball->position.x = simWidth / 2;
-        ball->position.y = simHeight / 2;
-        ball->velocity.x = 0;
-        ball->velocity.y = 0;
-    }
-}
-
-
-
+#define TRAIL_LENGTH 10
+#define TRAIL_CHECK_MS 50
 
 // scaling
 float scale;
@@ -56,6 +44,7 @@ typedef struct {
     Vector position;
     float radius;
     float pushStrength;
+    int color;
 } Bouncer;
 typedef struct {
     float radius;
@@ -70,6 +59,23 @@ typedef struct {
     float currentAngularVelocity;
     int touchIdentifier;
 } Flipper;
+
+typedef struct {
+    Vector position;
+    int color;
+} TrailPoint;
+
+typedef struct {
+    double r;       // a fraction between 0 and 1
+    double g;       // a fraction between 0 and 1
+    double b;       // a fraction between 0 and 1
+} rgb;
+
+typedef struct {
+    double h;       // angle in degrees
+    double s;       // a fraction between 0 and 1
+    double v;       // a fraction between 0 and 1
+} hsv;
 
 
 // physics scene
@@ -86,6 +92,10 @@ Flipper flippers[2];
 float margin = 0.02;
 Vector border[BORDER_POINTS];
 
+TrailPoint trail[TRAIL_LENGTH];
+int trailIndex = 0;
+unsigned long lastTrailUpdate = 0;
+int latestColor;
 
 // general util functions
 float clamp(float n, float start, float end) {
@@ -146,6 +156,65 @@ Vector getFlipperTip(Flipper* flipper) {
     float angle = flipper->restAngle + flipper->sign * flipper->rotation;
     Vector dir = {cos(angle), sin(angle)};
     return addVectors(flipper->position, scaleVector(dir, flipper->length));
+}
+
+// https://stackoverflow.com/a/6930407
+rgb hsv2rgb(hsv in)
+{
+    double      hh, p, q, t, ff;
+    long        i;
+    rgb         out;
+
+    if(in.s <= 0.0) {       // < is bogus, just shuts up warnings
+        out.r = in.v;
+        out.g = in.v;
+        out.b = in.v;
+        return out;
+    }
+    hh = in.h;
+    if(hh >= 360.0) hh = 0.0;
+    hh /= 60.0;
+    i = (long)hh;
+    ff = hh - i;
+    p = in.v * (1.0 - in.s);
+    q = in.v * (1.0 - (in.s * ff));
+    t = in.v * (1.0 - (in.s * (1.0 - ff)));
+
+    switch(i) {
+    case 0:
+        out.r = in.v;
+        out.g = t;
+        out.b = p;
+        break;
+    case 1:
+        out.r = q;
+        out.g = in.v;
+        out.b = p;
+        break;
+    case 2:
+        out.r = p;
+        out.g = in.v;
+        out.b = t;
+        break;
+
+    case 3:
+        out.r = p;
+        out.g = q;
+        out.b = in.v;
+        break;
+    case 4:
+        out.r = t;
+        out.g = p;
+        out.b = in.v;
+        break;
+    case 5:
+    default:
+        out.r = in.v;
+        out.g = p;
+        out.b = q;
+        break;
+    }
+    return out;     
 }
 
 
@@ -280,6 +349,30 @@ void draw_filled_polygon(BITMAP *bmp, int points[], int num_points, int color) {
     }
 }
 
+void updateTrail(Ball* ball) {
+    unsigned long currentTime = clock() * 1000 / CLOCKS_PER_SEC;
+    if (currentTime - lastTrailUpdate >= TRAIL_CHECK_MS) {
+        trail[trailIndex].position = ball->position;
+        
+        float hue = (float)trailIndex / TRAIL_LENGTH * 360.0f;
+        int r, g, b;
+        hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
+        latestColor = makecol(r, g, b);
+        trail[trailIndex].color = latestColor;
+
+        trailIndex = (trailIndex + 1) % TRAIL_LENGTH;
+        lastTrailUpdate = currentTime;
+    }
+}
+
+void drawTrail(BITMAP* buffer) {
+    for (int i = 0; i < TRAIL_LENGTH; i++) {
+        int index = (trailIndex - i - 1 + TRAIL_LENGTH) % TRAIL_LENGTH;
+        float radius = ball.radius * (TRAIL_LENGTH - i) / TRAIL_LENGTH;
+        circlefill(buffer, sX(trail[index].position.x), sY(trail[index].position.y), sX(radius), trail[index].color);
+    }
+}
+
 int main(int argc, const char **argv)
 {
     BITMAP *buffer;
@@ -317,9 +410,10 @@ int main(int argc, const char **argv)
         .position = {0.8, 0.7},
         .velocity = {0, 0},
         .radius = 0.05,
-        .color = makecol(0, 255, 0),
+        .color = makecol(0, 0, 0),
         .restitution = 0
     };
+    Vector ballPositions[10] = {}   ;
     Vector border[BORDER_POINTS] = {
         {0.74, 0.25},
         {1 - margin, 0.4},
@@ -357,12 +451,17 @@ int main(int argc, const char **argv)
         }
     };
 
+    // initialize trail
+    for (int i = 0; i < TRAIL_LENGTH; i++) {
+        trail[i].position = ball.position;
+        trail[i].color = makecol(255, 255, 255);
+    }
 
     Bouncer bouncers[BOUNCER_AMOUNT] = {
-        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2 },  // Upper left
-        { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0 },  // Upper right
-        { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1 },  // Lower left
-        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3 }   // Lower right
+        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2, .color = makecol(240, 80, 130)},  // upper left
+        { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0, .color = makecol(82, 247, 159) },  // upper right
+        { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1, .color = makecol(82, 226, 247) },  // lower left
+        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3, .color = makecol(247, 235, 82) }   // lower right
     };
     
     buffer = create_bitmap(SCREEN_W, SCREEN_H);
@@ -386,10 +485,11 @@ int main(int argc, const char **argv)
 
         draw_filled_polygon(buffer, white_area, BORDER_POINTS, makecol(255, 255, 255));
 
+        // draw trail before ball
+        drawTrail(buffer);
+
         // draw ball
         circlefill(buffer, sX(ball.position.x), sY(ball.position.y), sX(ball.radius), ball.color);
-        // circlefill(buffer, SCREEN_W/2, SCREEN_H/2, 5, makecol(255,0,0));
-        // printf("%f", sX(ball.position.x));
 
         // draw borders
         for (int i = 0; i < 7; i++) {
@@ -427,20 +527,21 @@ int main(int argc, const char **argv)
                 sX(x3), sY(y3),
                 sX(x4), sY(y4)
             };
-            polygon(buffer, 4, points, makecol(255, 0, 0));
+            polygon(buffer, 4, points, makecol(0, 0, 0));
 
-            circlefill(buffer, sX(flipper.position.x), sY(flipper.position.y), sX(flipper.radius), makecol(255, 0, 0));
+            circlefill(buffer, sX(flipper.position.x), sY(flipper.position.y), sX(flipper.radius), makecol(0, 0, 0));
 
             float end_x = flipper.position.x + flipper.length * cos_angle;
             float end_y = flipper.position.y + flipper.length * sin_angle;
-            circlefill(buffer, sX(end_x), sY(end_y), sX(flipper.radius), makecol(255, 0, 0));
+            circlefill(buffer, sX(end_x), sY(end_y), sX(flipper.radius), makecol(0, 0, 0));
         }
 
         
         // draw bouncers
         for (int i = 0; i < BOUNCER_AMOUNT; i++) {
             Bouncer bouncer = bouncers[i];
-            circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,255));
+            circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,0));
+            circle(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius) - 2, bouncer.color);
         }
 
         // draw score
@@ -463,7 +564,7 @@ int main(int argc, const char **argv)
         }
         handleBorderCollision(&ball, border, BORDER_POINTS);
 
-        checkBallFall(&ball);
+        updateTrail(&ball);
 
         vsync();
         blit(buffer, screen, 0, 0, 0, 0, SCREEN_W, SCREEN_H);
