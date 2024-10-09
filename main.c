@@ -45,6 +45,8 @@ typedef struct {
     float radius;
     float pushStrength;
     int color;
+    int score;
+    int hitTimer;
 } Bouncer;
 typedef struct {
     float radius;
@@ -245,8 +247,11 @@ void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
     // if the distance is greater than the sum of the radii, they aren't touching
     if (distance > ball->radius + bouncer->radius || distance == 0) { return; }
     
-    // add to score (smaller bouncers worth more)
-    score += (int)(100 / (bouncer->radius * 100));
+    // add to score
+    score += bouncer->score;
+
+    // trigger bouncer hit effects
+    bouncer->hitTimer = 5;
 
     directionVector = normalizeVector(directionVector);
 
@@ -461,11 +466,11 @@ int main(int argc, const char **argv)
     }
 
     Bouncer bouncers[BOUNCER_AMOUNT] = {
-        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2, .color = makecol(247, 82, 82)},  // upper left
-        { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0, .color = makecol(82, 247, 159) },  // upper right
-        { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1, .color = makecol(82, 226, 247) },  // lower left
-        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3, .color = makecol(247, 235, 82) },   // lower right
-        {.position = 0.5, 1.4, .radius = 0.15, .pushStrength = 2.0, .color = makecol(255, 255, 255)} // top center
+        { .position = {0.35, 0.6},  .radius = 0.07, .pushStrength = 2.2, .color = makecol(225, 81, 131), .score = 50, .hitTimer = 0 },  // bottom left
+        { .position = {0.65, 0.7},  .radius = 0.09, .pushStrength = 2.0, .color = makecol(82, 247, 159), .score = 70, .hitTimer = 0 },  // bottom right
+        { .position = {0.25, 1.0},  .radius = 0.08, .pushStrength = 2.1, .color = makecol(82, 226, 247), .score = 20, .hitTimer = 0 },  // top left
+        { .position = {0.75, 1.1},  .radius = 0.06, .pushStrength = 2.3, .color = makecol(247, 235, 82), .score = 30, .hitTimer = 0 },   // top right
+        {.position = 0.5, 1.4, .radius = 0.15, .pushStrength = 2.0, .color = makecol(255, 255, 255), .score = 100} // top center
     };
     
     buffer = create_bitmap(SCREEN_W, SCREEN_H);
@@ -494,6 +499,10 @@ int main(int argc, const char **argv)
 
         // draw ball
         circlefill(buffer, sX(ball.position.x), sY(ball.position.y), sX(ball.radius), ball.color);
+        circlefill(buffer, sX(ball.position.x + 0.005), sY(ball.position.y + 0.005), sX(ball.radius - 0.018), makecol(50, 50, 50));
+        circlefill(buffer, sX(ball.position.x + 0.009), sY(ball.position.y + 0.009), sX(ball.radius - 0.035), makecol(100, 100, 100));
+
+
 
         // draw borders
         for (int i = 0; i < 7; i++) {
@@ -543,15 +552,25 @@ int main(int argc, const char **argv)
         
         // draw bouncers
         for (int i = 0; i < BOUNCER_AMOUNT; i++) {
-            Bouncer bouncer = bouncers[i];
+            Bouncer* bouncer = &bouncers[i];
+
+            // rainbow effect for the 4th bouncer
             if (i == 4 && (int)new_time*1000 % 2 == 0) {
                 float hue = (int)(new_time * 360) % 360;
                 int r, g, b;
                 hsv_to_rgb(hue, 1.0f, 1.0f, &r, &g, &b);
-                bouncer.color = makecol(r, g, b);
+                bouncer->color = makecol(r, g, b);
             }
-            circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,0));
-            circle(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius) - 2, bouncer.color);
+
+            // effects for when the ball hits a bouncer
+            float drawRadius = bouncer->radius;
+            if (bouncer->hitTimer > 0) {
+                bouncer->hitTimer--;
+                drawRadius += 0.01;
+            }
+
+            circlefill(buffer, sX(bouncer->position.x), sY(bouncer->position.y), sX(drawRadius), makecol(0, 0, 0));
+            circle(buffer, sX(bouncer->position.x), sY(bouncer->position.y), sX(drawRadius) - 2, bouncer->color);
         }
 
         // draw score
