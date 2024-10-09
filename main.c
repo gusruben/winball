@@ -2,6 +2,10 @@
 #include <stdbool.h>
 #include <math.h>
 
+// macros
+#define BORDER_POINTS 8
+#define BOUNCER_AMOUNT 4
+
 
 // scaling
 float scale;
@@ -31,6 +35,7 @@ typedef struct {
     Vector velocity;
     float radius;
     int color;
+    float restitution;
 } Ball;
 
 typedef struct {
@@ -59,10 +64,10 @@ float gravity = -20.0f;
 float flipperHeight = 1.7f;
 
 Ball ball;
-Bouncer bouncers[4];
+Bouncer bouncers[BOUNCER_AMOUNT];
 Flipper flippers[2];
 float margin = 0.02;
-Vector border[8];
+Vector border[BORDER_POINTS];
 
 
 // general util functions
@@ -86,6 +91,26 @@ Vector scaleVector(Vector v, float scale) {
     v.y *= scale;
     return v;
 }
+float vectorLength(Vector v) {
+    return sqrt((double)(v.x*v.x + v.y*v.y));
+}
+// alternatively, there's an existing built in function for 3d
+Vector normalizeVector(Vector v) {
+    return scaleVector(v, 1 / vectorLength(v));
+}
+Vector perpendicularVector(Vector v) {
+    return (Vector){-v.y, v.x};
+}
+// get line segment from position, length, and angle
+LineSegment getLineSegment(Vector position, float length, float angle) {
+    Vector directionVector = {cos(angle), sin(angle)};
+    Vector endpoint = addVectors(position, scaleVector(directionVector, length));
+    return (LineSegment){.a = position, .b = endpoint};
+}
+LineSegment lineSegmentFromFlipper(Flipper f) {
+    float realAngle = f.restAngle + (f.sign * f.currentAngle);
+    return getLineSegment(f.position, f.length, realAngle);
+}
 
 // builtin allegro function is for 3d
 float dotProduct(Vector a, Vector b) {
@@ -107,10 +132,9 @@ Vector closestPointOnLineSegment(Vector point, LineSegment line) {
 
 // feature-specific functions
 void updateBall(Ball* b, float dt) {
-    b->velocity.x += gravity * dt;
+    b->velocity.y += gravity * dt;
     b->position = addVectors(b->position, scaleVector(b->velocity, dt));
 }
-
 void updateFlipper(Flipper* flipper, float dt, bool pressed) {
     float oldAngle = flipper->currentAngle;
     if (pressed) {
@@ -120,6 +144,90 @@ void updateFlipper(Flipper* flipper, float dt, bool pressed) {
     }
     flipper->currentAngularVelocity = flipper->sign * (flipper->currentAngle - oldAngle) / dt;
 }
+// collision handlers
+void handleBouncerCollision(Ball* ball, Bouncer* bouncer) {
+    Vector directionVector = subtractVectors(ball->position, bouncer->position); // vector pointing from the ball center to the bouncer center
+    float distance = vectorLength(directionVector);
+    // if the distance is greater than the sum of the radii, they aren't touching
+    if (distance > ball->radius + bouncer->radius || distance == 0) { return; }
+
+    directionVector = normalizeVector(directionVector);
+
+    // how far into the bouncer the ball is
+    float inset = ball->radius + bouncer->radius - distance;
+    // move the ball outside the boucner
+    ball->position = addVectors(ball->position, scaleVector(directionVector, inset));
+
+    // add the new velocity to the ball (away from the bouncer)
+    float velocityTowardsBouncer = dotProduct(ball->velocity, directionVector); // the component of the ball's velocity in the bouncer's direction
+    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, bouncer->pushStrength - velocityTowardsBouncer));
+}
+void handleFlipperCollision(Ball* ball, Flipper* flipper) {
+    Vector closestPoint = closestPointOnLineSegment(ball->position, lineSegmentFromFlipper(*flipper));
+    // after finding the closest point, the rest is basically just the same as bouncer physics
+    Vector directionVector = subtractVectors(ball->position, closestPoint);
+    float distance = vectorLength(directionVector);
+    if (distance > ball->radius + flipper->radius || distance == 0) { return; }
+
+    directionVector = normalizeVector(directionVector);
+
+    float inset = ball->radius + flipper->radius - distance;
+    ball->position = addVectors(ball->position, scaleVector(directionVector, inset));
+
+    // finding the velocity of the flipper at the contact point
+    Vector radiusVector = addVectors(closestPoint, scaleVector(directionVector, flipper->radius));
+    radiusVector = subtractVectors(radiusVector, flipper->position);
+    // to get the velocity, just rotate it by 90 degrees and scale it with the angular velocity of the flipper
+    Vector surfaceVelocityVector = scaleVector(perpendicularVector(radiusVector), flipper->currentAngularVelocity);
+    
+    // same code as the bouncers for updating the ball's velocity
+    float oldVelocityTowardsFlipper = dotProduct(ball->velocity, directionVector);
+    float newVelocityTowardsFlipper = dotProduct(surfaceVelocityVector, directionVector);
+    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, newVelocityTowardsFlipper - oldVelocityTowardsFlipper));
+}
+void handleBorderCollision(Ball* ball, Vector border[]) {
+    // first, find the closest border point to c
+    Vector directionVector;
+    Vector closest;
+    float shortestDistance = 0; // will always be set on the first iteration
+    Vector inwardNormal;
+
+    for (int i = 0; i < BORDER_POINTS; i++) {
+        Vector p1 = border[i];
+        Vector p2 = border[(i + 1) % (BORDER_POINTS - 1)];
+        Vector closestPoint = closestPointOnLineSegment(ball->position, (LineSegment){p1, p2});
+        directionVector = subtractVectors(ball->position, closestPoint);
+        float distance = vectorLength(directionVector);
+        if (i == 0 || distance < shortestDistance) {
+            shortestDistance = distance;
+            closest = closestPoint;
+
+            // inward-facing normal
+            inwardNormal = perpendicularVector(subtractVectors(p2, p1));
+        }
+    }
+
+    // if the ball is inside the border, move it out
+    float distance = shortestDistance;
+    if (distance == 0) { // edge case where the ball is exactly on the border
+        directionVector = inwardNormal;
+        distance = vectorLength(inwardNormal);
+    };
+    directionVector = scaleVector(directionVector, 1 / distance);
+
+    if (dotProduct(directionVector, inwardNormal) >= 0) {
+        if (distance > ball->radius) return;
+        ball->position = addVectors(ball->position, scaleVector(directionVector, ball->radius - distance));
+    } else {
+        ball->position = addVectors(ball->position, scaleVector(directionVector, -(distance + ball->radius)));
+    }
+    
+    // update velocity
+    float oldVelocityTowardsBorder = dotProduct(ball->velocity, directionVector);
+    float newVelocityTowardsBorder = ABS(oldVelocityTowardsBorder) * ball->restitution;
+    
+    ball->velocity = addVectors(ball->velocity, scaleVector(directionVector, newVelocityTowardsBorder - oldVelocityTowardsBorder));
+}
 
 void rotate_translate(float x, float y, float cx, float cy, float angle, float *rx, float *ry) {
     float cos_angle = cos(angle);
@@ -128,24 +236,6 @@ void rotate_translate(float x, float y, float cx, float cy, float angle, float *
     float ty = x * sin_angle + y * cos_angle;
     *rx = sX(cx + tx);
     *ry = sY(cy + ty);
-}
-
-void render(BITMAP *buffer) {
-    // draw ball
-    circlefill(buffer, sX(ball.position.x), sY(ball.position.y), ball.radius, ball.color);
-
-    // draw border
-    // for (int i = 0; i < 7; i++) {
-    //     line(buffer, 
-    //         sX(border[i].x), sY(border[i].y),
-    //         sX(border[i+1].x), sY(border[i+1].y),
-    //         makecol(0, 0, 0));
-    // }
-    // // the last line connecting the end to the start
-    // line(buffer,
-    //     sX(border[7].x), sY(border[7].y),
-    //     sX(border[0].x), sY(border[0].y),
-    //     makecol(0, 0, 0));
 }
 
 int main(int argc, const char **argv)
@@ -186,9 +276,10 @@ int main(int argc, const char **argv)
         .position = {simWidth / 2, simHeight / 2},
         .velocity = {5, 5},
         .radius = 4,
-        .color = makecol(0, 0, 0)
+        .color = makecol(0, 0, 0),
+        .restitution = 0
     };
-    Vector border[8] = {
+    Vector border[BORDER_POINTS] = {
         {0.74, 0.25},
         {1 - margin, 0.4},
         {1 - margin, flipperHeight - margin},
@@ -203,8 +294,8 @@ int main(int argc, const char **argv)
             .position = {0.26, 0.22},
             .radius = 0.03,
             .length = 0.2,
-            .restAngle = 2.094395, // 120 degrees
-            .activeAngle = 1,
+            .restAngle = -2.094395, // 120 degrees
+            .activeAngle = -0.5235988, // 30 degrees
             .sign = 1,
             .angularVelocity = 10,
             .touchIdentifier = 1,
@@ -215,8 +306,8 @@ int main(int argc, const char **argv)
             .position = {0.74, 0.22},
             .radius = 0.03,
             .length = 0.2,
-            .restAngle = -2.094395, // -120 degrees
-            .activeAngle = -1,
+            .restAngle = 2.094395, // -120 degrees
+            .activeAngle = 0.5235988, // -30 degrees
             .sign = 1,
             .angularVelocity = 10,
             .touchIdentifier = 1,
@@ -224,7 +315,7 @@ int main(int argc, const char **argv)
             .currentAngle = 0,
         },
     };
-    Bouncer bouncers[4]  = {
+    Bouncer bouncers[BOUNCER_AMOUNT]  = {
         { .position = {0.25, 0.6}, .radius = 0.1, .pushStrength = 2 },
         { .position = {0.75, 0.5}, .radius = 0.12, .pushStrength = 2 },
         { .position = {0.7, 1.0}, .radius = 0.1, .pushStrength = 2 },
@@ -240,29 +331,11 @@ int main(int argc, const char **argv)
         old_time = new_time;
 
         clear_bitmap(buffer);
-        render(buffer);
 
-        ball.velocity.y += gravity * dt;
-        ball.position.x += ball.velocity.x * dt;
-        ball.position.y += ball.velocity.y * dt;
+        // draw ball
+        circlefill(buffer, sX(ball.position.x), sY(ball.position.y), ball.radius, ball.color);
 
-        if (ball.position.x < 0) {
-            ball.position.x = 0;
-            ball.velocity.x *= -1;
-        }
-        if (ball.position.x > simWidth) {
-            ball.position.x = simWidth;
-            ball.velocity.x *= -0.9;
-        }
-        if (ball.position.y < 0) {
-            ball.position.y = 0;
-            ball.velocity.y *= -0.9;
-            ball.velocity.x *= 0.9;
-        }
-        // if (abs(ball.velocity.x) < 0.01) { ball.velocity.x = 0; }
-        // if (abs(ball.velocity.y) < 0.01) { ball.velocity.y = 0; }
-
-        // for some reason this doesn't work in another function
+        // draw borders
         for (int i = 0; i < 7; i++) {
             line(buffer, 
                 sX(border[i].x), sY(border[i].y),
@@ -271,7 +344,7 @@ int main(int argc, const char **argv)
         }
         // the last line connecting the end to the start
         line(buffer,
-            sX(border[7].x), sY(border[7].y),
+            sX(border[BORDER_POINTS-1].x), sY(border[BORDER_POINTS-1].y),
             sX(border[0].x), sY(border[0].y),
             makecol(0, 0, 0));
 
@@ -305,16 +378,36 @@ int main(int argc, const char **argv)
         }
         
         // draw bouncers
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < BOUNCER_AMOUNT; i++) {
             Bouncer bouncer = bouncers[i];
             circlefill(buffer, sX(bouncer.position.x), sY(bouncer.position.y), sX(bouncer.radius), makecol(0,0,255));
         }
+
+        // physics simulations
+        // flippers
+        updateFlipper(&flippers[0], dt, key[KEY_LEFT]);
+        updateFlipper(&flippers[1], dt, key[KEY_RIGHT]);
+        // ball
+        updateBall(&ball, dt);
+        // ball interactions
+        for (int i = 0; i < BOUNCER_AMOUNT; i++) {
+            handleBouncerCollision(&ball,  &bouncers[i]);
+        }
+        for (int i = 0; i < 2; i++) {
+            handleFlipperCollision(&ball, &flippers[i]);
+        }
+        handleBorderCollision(&ball, border);
 
         vsync();
         blit(buffer, screen, 0, 0, 0, 0, SCREEN_W, SCREEN_H);
 
         if (keyboard_needs_poll()) {
             poll_keyboard();
+        }
+
+        if (key[KEY_ESC] || (key[KEY_LCONTROL] && key[KEY_C])) {
+            allegro_exit();
+            return 0;
         }
     }
 
