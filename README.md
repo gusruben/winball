@@ -2,6 +2,8 @@
 
 **Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com). The code is messy, because this was my first time using C, but all things considered I think it turned out good.
 
+If you're reading this from Low Skies, the hours are wrong-- I spent about 12 hours on this during the last few days of Retrospect, but my Hackatime was broken for a good chunk of that.
+
 ## Running
 
 Winball can be run on any DOS emulator. The easiest way to compile Winball with Allegro is likely [DJGPP](https://www.delorie.com/djgpp/), a C/C++ development system for DOS PCs.
