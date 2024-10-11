@@ -1,6 +1,6 @@
 # Winball
 
-**Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com).
+**Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com). The code is messy, because this was my first time using C, but all things considered I think it turned out good.
 
 ## Running
 
