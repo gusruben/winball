@@ -17,4 +17,6 @@ Winball can be run on any DOS emulator. The easiest way to compile Winball with 
 
 ## Demo
 
+> Video not working? Try watching it [here](https://github.com/user-attachments/assets/76d1fb91-05be-4b06-a477-a258a71979e0).
+
 https://github.com/user-attachments/assets/76d1fb91-05be-4b06-a477-a258a71979e0
