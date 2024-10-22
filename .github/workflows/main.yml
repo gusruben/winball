@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/checkout@v3
     - name: Upload binary to release
       uses: svenstaro/upload-release-action@v2
       with:
