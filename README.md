@@ -2,9 +2,9 @@
     <img height="300" src="https://raw.githubusercontent.com/gusruben/winball/master/.github/title.gif" alt="Winball">
 </h1>
 
-**Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com). The code is messy, because this was my first time using C, but all things considered I think it turned out good.
+**Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com). 
 
-If you're reading this from Low Skies, the hours are wrong-- I spent about 12 hours on this during the last few days of Retrospect, but my Hackatime was broken for a good chunk of that.
+> **Messy code alert!** This was my first time using C, beware spaghetti code and bad practices!
 
 ## Running
 
