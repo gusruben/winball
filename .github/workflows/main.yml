@@ -20,4 +20,4 @@ jobs:
         asset_name: winball.zip
         tag: ${{ github.ref }}
         overwrite: true
-        body: "This release contains no changes to the game, but the zip archive contains all necessary files to run the game."
+        body: "This release contains no changes to the game, but the zip archive contains all necessary files to run the game. Just run `RUN.bat`."
