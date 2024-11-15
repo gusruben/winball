@@ -1,10 +1,6 @@
-<div align="center"> 
-    <img height="300" src="https://raw.githubusercontent.com/gusruben/promptly/main/.github/header.png" alt="Winball">
-</div>
-
-<!-- for a divider line -->
-<h1 align="center"></h1>
-
+<h1 align="center">
+    <img height="300" src="https://raw.githubusercontent.com/gusruben/winball/master/.github/title.gif" alt="Winball">
+</h1>
 
 **Winball** is a little pinball game made for MS-DOS using [Allegro](https://liballeg.org/). Winball was made for [Retrospect](https://retrospect.hackclub.com). The code is messy, because this was my first time using C, but all things considered I think it turned out good.
 
