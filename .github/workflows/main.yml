@@ -16,8 +16,8 @@ jobs:
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: winball.exe
-        asset_name: winball.exe
+        file: winball.zip
+        asset_name: winball.zip
         tag: ${{ github.ref }}
         overwrite: true
-        body: "Initial release. Uploaded directly."
+        body: "This release contains no changes to the game, but the zip archive contains all necessary files to run the game."
