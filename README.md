@@ -8,11 +8,21 @@
 
 ## Running
 
-Winball can be run on any DOS emulator. The easiest way to compile Winball with Allegro is likely [DJGPP](https://www.delorie.com/djgpp/), a C/C++ development system for DOS PCs.
+Unless you're planning on running the game on a 35-year-old computer, Winball can be run on any DOS emulator. During development, I used [DOSBox Staging](https://www.dosbox-staging.org/).
+
+### From Releases
+
+1. Download & extract [the latest ZIP file from releases](https://github.com/gusruben/winball/releases/latest).
+2. Mount the folder in DOSBox (or an equivalent) using `mount C C:\path\to\folder`
+3. Start the game with `run.bat`!
+
+### From Source
+
+The easiest way to compile Winball with Allegro is likely [DJGPP](https://www.delorie.com/djgpp/), a C/C++ development system for DOS PCs.
 
 1. Download DJGPP from https://www.delorie.com/djgpp/zip-picker.html - Check the box for 'Allegro' under toolkits. Select an HTTP mirror if you don't want to use FTP.
 2. Download the listed zip files, and extract them all into the same folder. Clone Winball next to it.
-3. Mount the parent folder in DOSBOX (or your DOS emulator of choice): `mount c C:\path\to\folder`
+3. Mount the parent folder in DOSBOX (or your DOS emulator of choice): `mount C C:\path\to\folder`
 4. Set the environment variables:
     - `set PATH=C:\DJGPP\BIN;%PATH%` (Note: this is the path from inside the DOS emulator, not from your main system)
     - `set DJGPP=C:\DJGPP\DJGPP.ENV`
